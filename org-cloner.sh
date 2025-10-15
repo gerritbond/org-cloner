@@ -3,7 +3,7 @@
 # org-cloner - GitHub Organization Repository Manager
 # Manages listing, cloning, and syncing repositories for a GitHub organization
 
-set -e
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -104,20 +104,27 @@ clone_repos() {
     local count=0
     local skipped=0
 
+    # Temporarily disable exit on error for the read loop
+    set +e
     while IFS= read -r repo; do
-        if [[ -d "$repo" ]]; then
+        set -e
+        [ -z "$repo" ] && continue
+
+        if [ -d "$repo" ]; then
             log_warning "Repository already exists, skipping: $repo"
-            ((skipped++))
+            skipped=$((skipped + 1))
         else
             log_info "Cloning: $repo"
             if gh repo clone "$org/$repo"; then
                 log_success "Cloned: $repo"
-                ((count++))
+                count=$((count + 1))
             else
                 log_error "Failed to clone: $repo"
             fi
         fi
-    done <<< "$repos"
+        set +e
+    done < <(echo "$repos")
+    set -e
 
     echo ""
     log_success "Cloning complete: $count new, $skipped skipped"
@@ -154,29 +161,36 @@ sync_repos() {
     local pulled=0
     local errors=0
 
+    # Temporarily disable exit on error for the read loop
+    set +e
     while IFS= read -r repo; do
-        if [[ -d "$repo" ]]; then
+        set -e
+        [ -z "$repo" ] && continue
+
+        if [ -d "$repo" ]; then
             # Repository exists, pull changes
             log_info "Pulling updates: $repo"
             if (cd "$repo" && git pull); then
                 log_success "Updated: $repo"
-                ((pulled++))
+                pulled=$((pulled + 1))
             else
                 log_error "Failed to pull: $repo"
-                ((errors++))
+                errors=$((errors + 1))
             fi
         else
             # Repository doesn't exist, clone it
             log_info "Cloning new repository: $repo"
             if gh repo clone "$org/$repo"; then
                 log_success "Cloned: $repo"
-                ((cloned++))
+                cloned=$((cloned + 1))
             else
                 log_error "Failed to clone: $repo"
-                ((errors++))
+                errors=$((errors + 1))
             fi
         fi
-    done <<< "$repos"
+        set +e
+    done < <(echo "$repos")
+    set -e
 
     echo ""
     log_success "Sync complete: $cloned new, $pulled updated, $errors errors"
